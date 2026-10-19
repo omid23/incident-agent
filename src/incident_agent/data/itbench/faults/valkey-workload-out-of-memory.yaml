@@ -1,0 +1,24 @@
+---
+alerts:
+  - HighRequestErrorRate
+description: This fault configures a Valkey instance to use a 1MB memory limit with the noeviction policy by running a short-lived Kubernetes Job. Under normal traffic, Valkey memory fills up and rejects all subsequent writes.
+expectation: Valkey will return `OOM command not allowed` errors on write operations, causing failures in dependent workloads such as cartservice.
+name: Valkey Workload Out of Memory
+platform: Kubernetes
+resources:
+  - https://valkey.io/
+  - https://kubernetes.io/docs/concepts/workloads/
+  - https://kubernetes.io/docs/concepts/services-networking/service/
+  - https://kubernetes.io/docs/reference/kubernetes-api/service-resources/service-v1/
+tags:
+  - Networking
+  - Configuration
+targets:
+  - kubernetes: KubernetesService
+solution_templates:
+  templates:
+    - steps:
+        - command: kubectl -n {{ args.kubernetesObject.metadata.namespace }} run valkey-fix --rm -it --image=docker.io/valkey/valkey:9.1.2-alpine3.24 --restart=Never -- valkey-cli -h {{ args.kubernetesObject.metadata.name }} CONFIG SET maxmemory 0
+          text: Run a temporary pod to reset the Valkey maxmemory limit back to unlimited (0).
+        - command: kubectl -n {{ args.kubernetesObject.metadata.namespace }} run valkey-fix --rm -it --image=docker.io/valkey/valkey:9.1.2-alpine3.24 --restart=Never -- valkey-cli -h {{ args.kubernetesObject.metadata.name }} CONFIG SET maxmemory-policy noeviction
+          text: Optionally reset the eviction policy to its original value.

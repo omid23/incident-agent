@@ -1,0 +1,14 @@
+# yaml-language-server: $schema=../../../schemas/json/library/scenarios/ground_truth.json
+---
+alerts:
+  - name: HighRequestErrorRate
+    labels: {}
+entities:
+  - apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+    namespace: otel-demo
+solutions:
+  - - steps:
+        - text: Manually edit the manifest and restore the dnsPolicy to the correct value (e.g. ClusterFirst).
+          command: kubectl -n otel-demo edit deployment frontend

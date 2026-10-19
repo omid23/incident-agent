@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Incident Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --sky-1: #f3f9fd;
+  --sky-2: #e3f0fa;
+  --ink: #0a1f33;
+  --ink-2: #39566f;
+  --line: rgba(10, 31, 51, .12);
+  --glass: rgba(255, 255, 255, .62);
+  --glass-strong: rgba(255, 255, 255, .82);
+  --amber: #f2a900;
+  --amber-soft: rgba(242, 169, 0, .16);
+  --radius: 5px;
+  --sans: "IBM Plex Sans", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  font: 14px/1.5 var(--sans); color: var(--ink);
+  background: linear-gradient(160deg, var(--sky-1) 0%, var(--sky-2) 100%) fixed;
+  min-height: 100vh;
+}
+button, input, select { font: inherit; color: inherit; }
+.glass {
+  background: var(--glass); backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, .7); box-shadow: 0 1px 0 rgba(10, 31, 51, .05), 0 8px 24px rgba(10, 31, 51, .06);
+  border-radius: var(--radius);
+}
+header.top {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 14px 24px; border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5;
+  background: rgba(243, 249, 253, .8); backdrop-filter: blur(12px);
+}
+.brand { font-weight: 600; letter-spacing: -.01em; }
+.brand span { color: var(--ink-2); font-weight: 400; margin-left: 10px; }
+.status-line { color: var(--ink-2); font-size: 13px; }
+.layout { display: grid; grid-template-columns: 280px 1fr; gap: 20px; padding: 20px 24px 40px; max-width: 1480px; margin: 0 auto; }
+@media (max-width: 900px) { .layout { grid-template-columns: 1fr; padding: 16px; } header.top { padding: 12px 16px; } }
+
+/* incident list */
+.rail { padding: 8px; align-self: start; position: sticky; top: 72px; max-height: calc(100vh - 92px); overflow: auto; }
+@media (max-width: 900px) { .rail { position: static; max-height: 260px; } }
+.rail h2 { font-size: 13px; font-weight: 600; margin: 6px 8px 8px; }
+.inc { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 9px 10px; border-radius: 4px; cursor: pointer; }
+.inc:hover { background: rgba(255, 255, 255, .7); }
+.inc[aria-current="true"] { background: var(--glass-strong); box-shadow: inset 3px 0 0 var(--amber); }
+.inc .id { font-family: var(--mono); font-size: 13px; }
+.inc .meta { color: var(--ink-2); font-size: 12px; }
+.pill { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 3px; border: 1px solid var(--line); margin-left: 6px; }
+.pill.hot { background: var(--amber-soft); border-color: rgba(242, 169, 0, .5); }
+
+/* main */
+main { min-width: 0; display: grid; gap: 20px; }
+.head { padding: 18px 20px; display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; }
+.head h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -.01em; font-family: var(--mono); }
+.head .sub { color: var(--ink-2); font-size: 13px; margin-top: 2px; }
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--line); background: var(--glass-strong); padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: 500; }
+.btn:hover { border-color: rgba(10, 31, 51, .3); }
+.btn.primary { background: var(--amber); border-color: var(--amber); color: var(--ink); }
+.btn.primary:hover { filter: brightness(1.05); }
+.btn:disabled { opacity: .5; cursor: progress; }
+.btn:focus-visible, .inc:focus-visible, .node:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 20px; }
+@media (max-width: 1200px) { .grid { grid-template-columns: 1fr; } }
+section.card { padding: 18px 20px; min-width: 0; }
+section.card h2 { font-size: 15px; font-weight: 600; margin: 0 0 12px; }
+.muted { color: var(--ink-2); }
+.empty { color: var(--ink-2); padding: 8px 0; }
+
+.alerts { display: flex; flex-wrap: wrap; gap: 8px; }
+.alert { padding: 6px 10px; border-radius: 4px; background: rgba(255, 255, 255, .6); border: 1px solid var(--line); font-size: 13px; }
+.alert b { font-weight: 600; }
+.alert code { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+
+.cause { border-left: 3px solid var(--amber); padding: 10px 12px; background: rgba(255, 255, 255, .55); border-radius: 0 4px 4px 0; margin-bottom: 10px; }
+.cause .ent { font-family: var(--mono); font-size: 14px; font-weight: 500; cursor: pointer; background: none; border: 0; padding: 0; text-align: left; }
+.cause .ent:hover { text-decoration: underline; }
+.cause p { margin: 4px 0 6px; }
+.cause ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 13px; }
+.summary { margin: 0 0 14px; font-size: 15px; }
+.verdict { font-size: 12px; margin-top: 8px; }
+
+.action { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.action:first-of-type { border-top: 0; }
+.action .t { font-weight: 500; }
+.action code { font-family: var(--mono); font-size: 12px; display: block; white-space: pre-wrap; word-break: break-all; background: rgba(10, 31, 51, .05); padding: 6px 8px; border-radius: 3px; margin-top: 4px; }
+.action .why { color: var(--ink-2); font-size: 13px; grid-column: 1 / -1; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; height: fit-content; }
+.seg button { border: 0; background: transparent; padding: 5px 10px; cursor: pointer; font-size: 13px; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.seg button.approve[aria-pressed="true"] { background: var(--amber); color: var(--ink); }
+.result { font-family: var(--mono); font-size: 12px; color: var(--ink-2); grid-column: 1 / -1; }
+
+.topo-wrap { overflow-x: auto; }
+svg.topo { display: block; max-width: none; margin: 0 auto; }
+.legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--ink-2); margin-top: 8px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -2px; margin-right: 5px; border: 1.5px solid var(--ink); }
+.legend i.root { background: var(--amber); border-color: var(--amber); }
+.legend i.alert { border-color: var(--amber); border-width: 2px; }
+.legend i.err { border: 0; height: 2px; background: var(--amber); vertical-align: 3px; width: 18px; }
+
+.drawer pre { font-family: var(--mono); font-size: 12px; background: rgba(10, 31, 51, .05); padding: 10px; border-radius: 4px; max-height: 340px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 6px 0 12px; }
+.drawer h3 { font-size: 13px; margin: 10px 0 0; font-weight: 600; }
+.timeline { font-size: 13px; margin: 0; padding: 0; list-style: none; }
+.timeline li { padding: 5px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: 90px 1fr; gap: 10px; }
+.timeline li:first-child { border-top: 0; }
+.timeline .k { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px 16px; z-index: 10; display: none; }
+@media (prefers-reduced-motion: no-preference) { .btn, .inc { transition: background .15s, border-color .15s; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">incident-agent <span>Kubernetes root-cause analysis</span></div>
+  <div class="status-line" id="status">Loading…</div>
+</header>
+<div class="layout">
+  <nav class="rail glass" aria-label="Incidents">
+    <h2>Incidents</h2>
+    <div id="list"></div>
+  </nav>
+  <main id="main">
+    <div class="glass head"><div class="empty">Choose an incident to investigate.</div></div>
+  </main>
+</div>
+<div class="toast glass" id="toast" role="status"></div>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+let current = null, info = {}, decisions = {};
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {headers: {"content-type": "application/json"}, ...opts});
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || r.statusText);
+  return data;
+}
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", 4000); }
+
+async function boot() {
+  info = await api("/api/info");
+  $("#status").textContent = (info.model ? `Model ${info.model}` : "Rules engine, no model configured") + `, ${info.executor} executor`;
+  await loadList();
+  const first = new URLSearchParams(location.hash.slice(1)).get("i");
+  if (first) open(first);
+}
+async function loadList() {
+  const rows = await api("/api/incidents");
+  $("#list").innerHTML = rows.map(r => `
+    <button class="inc" data-id="${esc(r.id)}" aria-current="${r.id === current}">
+      <div class="id">${esc(r.id)}<span class="pill ${r.status === "new" ? "" : "hot"}">${esc(r.status)}</span></div>
+      <div class="meta">${r.alerts} alert${r.alerts === 1 ? "" : "s"}${r.top_alert ? ", " + esc(r.top_alert) : ""}</div>
+    </button>`).join("") || `<div class="empty">No incidents. Start the server with --demo or --snapshots DIR.</div>`;
+  $("#list").querySelectorAll(".inc").forEach(b => b.onclick = () => open(b.dataset.id));
+}
+
+async function open(id) {
+  current = id; location.hash = "i=" + encodeURIComponent(id); decisions = {};
+  document.querySelectorAll(".inc").forEach(b => b.setAttribute("aria-current", b.dataset.id === id));
+  const inc = await api(`/api/incidents/${encodeURIComponent(id)}`);
+  render(inc);
+}
+
+function render(inc) {
+  const st = inc.state || {};
+  const s = inc.stats || {};
+  const canLlm = !!info.model;
+  $("#main").innerHTML = `
+    <div class="glass head">
+      <div>
+        <h1>${esc(inc.id)}</h1>
+        <div class="sub">${inc.meta.window_end ? "Snapshot to " + esc(inc.meta.window_end) + " from the " + esc(inc.meta.source || "cluster") + ". " : ""}${s.objects} objects, ${s.spans} spans, ${s.logs} log lines, ${s.events} events</div>
+      </div>
+      <div class="actions">
+        ${canLlm ? `<button class="btn primary" id="go-llm">Investigate with ${esc(info.model)}</button>` : ""}
+        <button class="btn ${canLlm ? "" : "primary"}" id="go-rules">${st.status ? "Re-run" : "Run"} rules engine</button>
+      </div>
+    </div>
+    <section class="glass card">
+      <h2>Firing alerts</h2>
+      <div class="alerts">${inc.alerts.filter(a => !a.pre_existing).map(a => `<div class="alert"><b>${esc(a.alertname)}</b> <code>${esc(a.entity)}</code></div>`).join("") || `<div class="empty">No new alerts.</div>`}</div>
+      ${inc.alerts.some(a => a.pre_existing) ? `<div class="muted" style="margin-top:10px;font-size:13px">Already firing before this incident: ${inc.alerts.filter(a => a.pre_existing).map(a => `${esc(a.alertname)} on <code style="font-family:var(--mono);font-size:12px">${esc(a.entity)}</code>`).join(", ")}</div>` : ""}
+    </section>
+    <section class="glass card"><h2>Service map</h2><div class="topo-wrap"><div id="topo" class="empty">Loading…</div></div>
+      <div class="legend"><span><i class="root"></i>root cause</span><span><i class="alert"></i>alert fires here</span><span><i class="err"></i>failing calls</span><span>dashed: object does not exist</span></div>
+    </section>
+    <div class="grid">
+      <div style="display:grid;gap:20px;align-content:start;min-width:0">
+        <section class="glass card" id="diag">${diagnosisHtml(st)}</section>
+        <section class="glass card" id="plan">${planHtml(st)}</section>
+        <section class="glass card"><h2>Agent steps</h2>${timelineHtml(st)}</section>
+      </div>
+      <div style="display:grid;gap:20px;align-content:start;min-width:0">
+        <section class="glass card drawer" id="drawer"><h2>Evidence</h2><div class="empty">Select a root cause or a service on the map to see its findings, events and object.</div></section>
+      </div>
+    </div>`;
+  $("#go-rules").onclick = () => investigate("rules");
+  if ($("#go-llm")) $("#go-llm").onclick = () => investigate("llm");
+  wirePlan(st);
+  document.querySelectorAll("[data-entity]").forEach(el => el.onclick = () => evidence(el.dataset.entity));
+  topology();
+}
+
+function diagnosisHtml(st) {
+  const d = st.diagnosis;
+  if (!d) return `<h2>Diagnosis</h2><div class="empty">Not investigated yet. Run the rules engine${info.model ? " or the model" : ""} to find the root cause.</div>`;
+  const rc = d.root_causes.map(r => `
+    <div class="cause">
+      <button class="ent" data-entity="${esc(r.entity)}">${esc(r.entity)}</button>
+      <p>${esc(r.reason)}</p>
+      ${r.evidence && r.evidence.length ? `<ul>${r.evidence.slice(0, 3).map(e => `<li>${esc(e)}</li>`).join("")}</ul>` : ""}
+    </div>`).join("");
+  const checks = d.verified ? "Every alert is explained by these root causes." : `Checks not passed: ${esc((d.problems || []).join("; "))}`;
+  return `<h2>Diagnosis</h2><p class="summary">${esc(d.summary)}</p>${rc}
+    <div class="verdict muted">${checks} Source: ${esc(d.source)}.</div>`;
+}
+
+function planHtml(st) {
+  const acts = st.actions || [];
+  if (!st.diagnosis) return `<h2>Remediation</h2><div class="empty">Actions appear after the diagnosis.</div>`;
+  if (!acts.length) return `<h2>Remediation</h2><div class="empty">No actions were planned.</div>`;
+  const pending = !!st.pending_approval;
+  const results = Object.fromEntries((st.results || []).map(r => [r.action_id, r]));
+  return `<h2>Remediation ${pending ? `<span class="pill hot">waiting for approval</span>` : ""}</h2>
+    ${acts.map(a => {
+      const dec = (st.decisions || {})[a.id] || decisions[a.id] || "reject";
+      const r = results[a.id];
+      return `<div class="action">
+        <div><div class="t">${esc(a.title)} <span class="pill">${esc(a.risk)} risk</span>${a.reversible ? "" : `<span class="pill">not reversible</span>`}</div>
+          <code>${esc(a.command)}</code></div>
+        ${pending ? `<div class="seg" role="group" aria-label="Decision for ${esc(a.id)}">
+            <button class="approve" data-act="${esc(a.id)}" data-v="approve" aria-pressed="${dec === "approve"}">Approve</button>
+            <button data-act="${esc(a.id)}" data-v="reject" aria-pressed="${dec !== "approve"}">Reject</button></div>`
+          : `<div class="muted">${esc((st.decisions || {})[a.id] || "")}</div>`}
+        <div class="why">${esc(a.rationale)}</div>
+        ${r ? `<div class="result">${esc(r.output)}</div>` : ""}
+      </div>`; }).join("")}
+    ${pending ? `<div class="actions" style="margin-top:12px"><button class="btn primary" id="submit">Submit decisions</button></div>` : ""}`;
+}
+
+function wirePlan(st) {
+  document.querySelectorAll("[data-act]").forEach(b => b.onclick = () => {
+    decisions[b.dataset.act] = b.dataset.v;
+    b.parentElement.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  });
+  if ($("#submit")) $("#submit").onclick = async () => {
+    const acts = st.actions.map(a => a.id);
+    const body = {decisions: Object.fromEntries(acts.map(id => [id, decisions[id] || "reject"]))};
+    $("#submit").disabled = true;
+    try { await api(`/api/incidents/${encodeURIComponent(current)}/approve`, {method: "POST", body: JSON.stringify(body)}); toast("Decisions recorded."); }
+    catch (e) { toast(e.message); }
+    await open(current); loadList();
+  };
+}
+
+function timelineHtml(st) {
+  const tl = st.timeline || [];
+  if (!tl.length) return `<div class="empty">Steps appear here as the workflow runs.</div>`;
+  const t0 = tl[0].t;
+  const describe = e => ({
+    triage: `Triaged ${e.alerts} alert${e.alerts === 1 ? "" : "s"}; ${e.hypotheses} ${e.hypotheses === 1 ? "hypothesis" : "hypotheses"} from the rules engine`,
+    model: e.tools && e.tools.length ? `Model called ${e.tools.join(", ")}` : "Model answered",
+    tool: `${e.name}(${Object.entries(e.arguments || {}).map(([k, v]) => `${k}=${typeof v === "string" ? v : JSON.stringify(v)}`).join(", ")})${e.error ? " failed" : ""}`,
+    adjudicate: e.passed ? "Diagnosis passed the checks" : `Diagnosis sent back: ${(e.problems || []).join("; ")}`,
+    plan: `Planned ${e.actions} action${e.actions === 1 ? "" : "s"}`,
+    approval: `Decisions: ${Object.entries(e.decisions || {}).map(([k, v]) => `${k} ${v}`).join(", ")}`,
+    remediate: `Ran approved actions with the ${e.executor} executor`,
+    report: "Wrote the incident report", model_error: `Model failed: ${e.error}`, budget_exhausted: "Step budget reached",
+  })[e.kind] || e.kind;
+  return `<ul class="timeline">${tl.map(e => `<li><span class="k">+${(e.t - t0).toFixed(1)}s</span><span>${esc(describe(e))}</span></li>`).join("")}</ul>`;
+}
+
+async function investigate(mode) {
+  const btns = document.querySelectorAll(".head .btn"); btns.forEach(b => b.disabled = true);
+  toast(mode === "llm" ? "Investigating with the model…" : "Running the rules engine…");
+  try { await api(`/api/incidents/${encodeURIComponent(current)}/investigate`, {method: "POST", body: JSON.stringify({mode})}); }
+  catch (e) { toast(e.message); }
+  await open(current); loadList();
+}
+
+async function evidence(entity) {
+  const d = await api(`/api/incidents/${encodeURIComponent(current)}/resource?entity=${encodeURIComponent(entity)}`).catch(e => ({yaml: e.message}));
+  $("#drawer").innerHTML = `<h2>Evidence</h2><div style="font-family:var(--mono);font-size:13px">${esc(entity)}</div>
+    <h3>Findings</h3><pre>${esc(d.findings || "")}</pre><h3>Events</h3><pre>${esc(d.events || "")}</pre><h3>Object</h3><pre>${esc(d.yaml || "")}</pre>`;
+  $("#drawer").scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest"});
+}
+
+async function topology() {
+  const g = await api(`/api/incidents/${encodeURIComponent(current)}/topology`).catch(() => null);
+  if (!g || !g.nodes.length) { $("#topo").textContent = "No traced calls in this snapshot."; return; }
+  // Layer nodes by longest path from callers; services sit next to the workloads they front.
+  const out = {}, indeg = {};
+  g.nodes.forEach(n => { out[n.id] = []; indeg[n.id] = 0; });
+  g.edges.forEach(e => { out[e.from].push(e.to); indeg[e.to]++; });
+  const layer = {}; const q = g.nodes.filter(n => !indeg[n.id]).map(n => n.id);
+  q.forEach(id => layer[id] = 0);
+  for (let i = 0; i < q.length; i++) for (const t of out[q[i]]) { const l = layer[q[i]] + 1; if (!(t in layer) || layer[t] < l) { if (l < 12) { layer[t] = l; q.push(t); } } }
+  g.nodes.forEach(n => { if (!(n.id in layer)) layer[n.id] = 0; });
+  const cols = {}; g.nodes.forEach(n => (cols[layer[n.id]] ||= []).push(n));
+  const ncol = Math.max(...Object.keys(cols).map(Number)) + 1, rows = Math.max(...Object.values(cols).map(c => c.length));
+  const W = 150, H = 40, PX = 24, PY = 18, width = ncol * W + PX * 2, height = rows * H + PY * 2;
+  const pos = {};
+  Object.entries(cols).forEach(([c, ns]) => ns.sort((a, b) => a.label.localeCompare(b.label)).forEach((n, i) => {
+    const off = (rows - ns.length) * H / 2; pos[n.id] = {x: PX + c * W, y: PY + off + i * H};
+  }));
+  const nw = 122, nh = 26;
+  const edges = g.edges.map(e => {
+    const a = pos[e.from], b = pos[e.to]; if (!a || !b) return "";
+    const x1 = a.x + nw, y1 = a.y + nh / 2, x2 = b.x, y2 = b.y + nh / 2, mx = (x1 + x2) / 2;
+    const bad = e.error_rate > 0.1;
+    return `<path d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" fill="none" stroke="${bad ? "var(--amber)" : "rgba(10,31,51,.22)"}" stroke-width="${bad ? 2.2 : 1.2}" ${bad ? "" : ""}><title>${esc(e.from)} → ${esc(e.to)}: ${e.calls} calls, ${(e.error_rate * 100).toFixed(0)}% failed</title></path>`;
+  }).join("");
+  const nodes = g.nodes.map(n => {
+    const p = pos[n.id];
+    const fill = n.root ? "var(--amber)" : "rgba(255,255,255,.85)";
+    const stroke = n.alerted && !n.root ? "var(--amber)" : n.root ? "var(--amber)" : "rgba(10,31,51,.35)";
+    const label = n.label.length > 17 ? n.label.slice(0, 16) + "…" : n.label;
+    return `<g class="node" tabindex="0" role="button" data-entity="${esc(n.id)}" style="cursor:pointer" aria-label="${esc(n.id)}">
+      <rect x="${p.x}" y="${p.y}" width="${nw}" height="${nh}" rx="4" fill="${fill}" stroke="${stroke}" stroke-width="${n.alerted || n.root ? 2 : 1}" ${n.missing ? 'stroke-dasharray="4 3"' : ""}/>
+      <text x="${p.x + 8}" y="${p.y + 17}" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="var(--ink)">${esc(label)}</text>
+      <title>${esc(n.id)}${n.missing ? " (does not exist)" : ""}</title></g>`;
+  }).join("");
+  $("#topo").className = "";
+  $("#topo").innerHTML = `<svg class="topo" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="Service call graph">${edges}${nodes}</svg>`;
+  $("#topo").querySelectorAll(".node").forEach(el => {
+    el.onclick = () => evidence(el.dataset.entity);
+    el.onkeydown = ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); evidence(el.dataset.entity); } };
+  });
+}
+boot().catch(e => { $("#status").textContent = e.message; });
+</script>
+</body>
+</html>
