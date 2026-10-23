@@ -115,6 +115,14 @@ svg.topo { display: block; max-width: none; margin: 0 auto; }
 .timeline li { padding: 5px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: 90px 1fr; gap: 10px; }
 .timeline li:first-child { border-top: 0; }
 .timeline .k { font-family: var(--mono); font-size: 12px; color: var(--ink-2); }
+.timeline li.root { box-shadow: inset 3px 0 0 var(--amber); padding-left: 8px; }
+.timeline .kind { font-family: var(--mono); font-size: 11px; color: var(--ink-2); margin-right: 6px; text-transform: uppercase; letter-spacing: .03em; }
+.timeline .link { font: inherit; background: none; border: 0; padding: 0; cursor: pointer; text-align: left; color: inherit; }
+.timeline .link:hover { text-decoration: underline; }
+.suspect { padding: 8px 10px; border-radius: 4px; background: rgba(255, 255, 255, .55); border: 1px solid var(--line); margin-bottom: 8px; font-size: 13px; }
+.suspect .ent { font-family: var(--mono); font-size: 13px; font-weight: 500; cursor: pointer; background: none; border: 0; padding: 0; text-align: left; }
+.suspect .ent:hover { text-decoration: underline; }
+.suspect .why { color: var(--ink-2); font-size: 12px; }
 .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); padding: 10px 16px; z-index: 10; display: none; }
 @media (prefers-reduced-motion: no-preference) { .btn, .inc { transition: background .15s, border-color .15s; } }
 </style>
@@ -201,6 +209,7 @@ function render(inc) {
         <section class="glass card"><h2>Agent steps</h2>${timelineHtml(st)}</section>
       </div>
       <div style="display:grid;gap:20px;align-content:start;min-width:0">
+        <section class="glass card" id="changes"><h2>What changed</h2><div class="empty">Loading…</div></section>
         <section class="glass card drawer" id="drawer"><h2>Evidence</h2><div class="empty">Select a root cause or a service on the map to see its findings, events and object.</div></section>
       </div>
     </div>`;
@@ -209,6 +218,39 @@ function render(inc) {
   wirePlan(st);
   document.querySelectorAll("[data-entity]").forEach(el => el.onclick = () => evidence(el.dataset.entity));
   topology();
+  changes();
+}
+
+const fmtOffset = s => {
+  const a = Math.abs(s), sign = s < 0 ? "-" : "+";
+  if (a >= 3600) return `T${sign}${Math.floor(a / 3600)}h${String(Math.floor(a % 3600 / 60)).padStart(2, "0")}m`;
+  if (a >= 60) return `T${sign}${Math.floor(a / 60)}m${String(a % 60).padStart(2, "0")}s`;
+  return `T${sign}${a}s`;
+};
+
+async function changes(showAll = false) {
+  const id = current;
+  const tl = await api(`/api/incidents/${encodeURIComponent(id)}/timeline`).catch(() => null);
+  const box = $("#changes");
+  if (!box || id !== current) return;
+  if (!tl) { box.innerHTML = `<h2>What changed</h2><div class="empty">Timeline unavailable.</div>`; return; }
+  const key = e => e.kind === "change" || e.kind === "marker" || e.tags.includes("root_cause") ||
+    (e.kind === "alert" && !e.tags.includes("pre_existing")) || e.kind === "warning";
+  const shown = showAll ? tl.entries : tl.entries.filter(key);
+  const sus = tl.suspects.slice(0, 3).map(s => `
+    <div class="suspect"><button class="ent" data-entity="${esc(s.entity)}">${esc(s.entity)}</button>
+      <span class="k" style="font-family:var(--mono);font-size:12px;color:var(--ink-2);margin-left:6px">${fmtOffset(-s.lead_s)}</span>
+      <div>${esc(s.summary)}</div><div class="why">${esc(s.reasons.join("; "))}</div></div>`).join("");
+  box.innerHTML = `<h2>What changed</h2>
+    <div class="muted" style="font-size:13px;margin-bottom:10px">T0 is ${tl.first_alert ? "the first alert of this incident" : "the estimated incident start"}, ${esc(tl.anchor)}.</div>
+    ${sus ? `<div style="font-size:13px;font-weight:600;margin-bottom:6px">Likely triggers <span class="muted" style="font-weight:400">(changes before the first alert on an alert's dependency path; correlation, not proof)</span></div>${sus}`
+          : `<div class="empty">No recent change lies on an alert's dependency path.</div>`}
+    <ul class="timeline" style="margin-top:10px">${shown.map(e => `
+      <li class="${e.tags.includes("root_cause") ? "root" : ""}"><span class="k">${fmtOffset(e.offset_s)}</span>
+        <span><span class="kind">${esc(e.kind)}</span>${e.entity ? `<button class="link" data-entity="${esc(e.entity)}">${esc(e.summary)}</button>` : esc(e.summary)}${e.count > 1 ? ` <span class="muted">x${e.count}</span>` : ""}</span></li>`).join("")}</ul>
+    ${tl.entries.length > shown.length || showAll ? `<div class="actions" style="margin-top:10px"><button class="btn" id="tl-toggle">${showAll ? "Show key entries" : `Show all ${tl.entries.length} entries`}</button></div>` : ""}`;
+  box.querySelectorAll("[data-entity]").forEach(el => el.onclick = () => evidence(el.dataset.entity));
+  if ($("#tl-toggle")) $("#tl-toggle").onclick = () => changes(!showAll);
 }
 
 function diagnosisHtml(st) {

@@ -17,6 +17,7 @@ import yaml
 from ..analysis.detectors import template_diff
 from ..analysis.index import _template
 from ..analysis.rca import RCAEngine
+from ..analysis.timeline import Timeline, build_timeline
 from ..entities import Ref
 from ..snapshot import Snapshot, parse_time
 from .llm import ToolSpec
@@ -55,7 +56,9 @@ class Toolbox:
             "get_events": self.get_events, "search_logs": self.search_logs,
             "trace_summary": self.trace_summary, "get_metric": self.get_metric,
             "dependencies": self.dependencies, "rollout_history": self.rollout_history,
+            "incident_timeline": self.incident_timeline,
         }
+        self._timeline: Timeline | None = None
 
     @property
     def specs(self) -> list[ToolSpec]:
@@ -101,6 +104,11 @@ class Toolbox:
                      {"type": "object", "properties": {"entity": ent}, "required": ["entity"]}),
             ToolSpec("rollout_history", "ReplicaSet revisions of a workload and what changed between the last two.",
                      {"type": "object", "properties": {"entity": ent}, "required": ["entity"]}),
+            ToolSpec("incident_timeline", "What happened in order, relative to the first alert: changes (rollouts, edits, "
+                     "deleted Services), first warnings, first new errors, alerts. Lists the changes that landed shortly "
+                     "before the first alert on an alerted entity's dependency path (correlation, not proof). Optionally "
+                     "filter by entity or kind (change, warning, error, alert).",
+                     {"type": "object", "properties": {"entity": ent, "kind": {"type": "string"}}}),
         ]
 
     # -- handlers ------------------------------------------------------------------------------------
@@ -265,6 +273,21 @@ class Toolbox:
         if ref not in self.snap.by_ref:
             lines.insert(0, f"note: {ref} does not exist in the snapshot")
         return _cap(lines) or "No known dependencies."
+
+    @property
+    def timeline(self) -> Timeline:
+        if self._timeline is None:
+            self._timeline = build_timeline(self.engine)
+        return self._timeline
+
+    def incident_timeline(self, args: dict) -> str:
+        ent = Ref.parse(args["entity"]) if args.get("entity") else None
+        kinds = {k.strip().lower() for k in str(args.get("kind") or "").split(",") if k.strip()} or None
+        tl = self.timeline
+        entries = tl.filter(ent, kinds) if ent or kinds else None
+        if entries == []:
+            return "No timeline entries match."
+        return "\n".join(tl.render(entries, limit=MAX_LINES, suspects=0 if ent or kinds else 3))
 
     def rollout_history(self, args: dict) -> str:
         ref = Ref.parse(args["entity"])

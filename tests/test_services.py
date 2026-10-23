@@ -136,6 +136,10 @@ def test_console_flow(client):
     assert client.post("/api/incidents/inc-114/approve", json={"decisions": "yes"}).status_code == 400
     st = client.post("/api/incidents/inc-114/approve", json={"decisions": {"a1": "approve"}}).json()
     assert st["status"] == "remediated" and st["pending_approval"] is None
+    tl = client.get("/api/incidents/inc-114/timeline").json()
+    assert tl["suspects"][0]["entity"] == "otel-demo/Service/product-catalog"
+    assert any("root_cause" in e["tags"] for e in tl["entries"]) and tl["entries"][0]["kind"] == "alert"
+    assert client.get("/api/incidents/zzz/timeline").status_code == 404
     topo = client.get("/api/incidents/inc-114/topology").json()
     root = next(n for n in topo["nodes"] if n["id"] == "otel-demo/Service/product-catalog")
     assert root["root"] and root["missing"]
@@ -187,7 +191,12 @@ def test_cli_end_to_end(tmp_path, capsys):
     assert json.loads((tmp_path / "out.json").read_text())["entities"][0]["contributing_factor"]
     main(["investigate", str(snaps / "scenario-31"), "--state", str(tmp_path / "s.sqlite"), "--approve", "a1"])
     out = capsys.readouterr().out
-    assert "[approve] Delete NetworkPolicy frontend-ingress" in out
+    assert "[approve] Delete NetworkPolicy frontend-ingress" in out and "## Timeline" in out
+    main(["timeline", str(snaps / "scenario-31"), "--kind", "change"])
+    out = capsys.readouterr().out
+    assert "Changes most likely to have triggered it:" not in out and "NetworkPolicy frontend-ingress was created" in out
+    main(["timeline", str(snaps / "scenario-31"), "--json"])
+    assert json.loads(capsys.readouterr().out)["suspects"][0]["entity"] == "otel-demo/NetworkPolicy/frontend-ingress"
     main(["simulate", "36", "--out", str(tmp_path / "itb"), "--itbench-format"])
     main(["itbench-check", str(tmp_path / "itb" / "scenario-36")])
     assert "ground truth root causes: ['book-info/Service/details']" in capsys.readouterr().out

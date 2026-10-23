@@ -32,7 +32,7 @@ def test_tools(scenario):
     tb = Toolbox(snap)
     assert {s.name for s in tb.specs} == {"list_alerts", "find_anomalies", "get_resource", "list_resources",
                                           "get_events", "search_logs", "trace_summary", "get_metric",
-                                          "dependencies", "rollout_history"}
+                                          "dependencies", "rollout_history", "incident_timeline"}
     alerts, err = tb.call("list_alerts", {})
     assert not err and "HighRequestErrorRate" in alerts and "-> otel-demo/Deployment/frontend" in alerts
     found, _ = tb.call("find_anomalies", {"role": "defect"})
@@ -52,6 +52,11 @@ def test_tools(scenario):
     assert tb.call("get_resource", {"entity": "nonsense"})[1]
     pods, _ = tb.call("list_resources", {"kind": "po", "namespace": "otel-demo"})
     assert "otel-demo/Pod/frontend-" in pods and "phase=Running" in pods
+    tl, err = tb.call("incident_timeline", {})
+    assert not err and tl.startswith("T0 = first alert") and "Service product-catalog disappeared" in tl
+    only, _ = tb.call("incident_timeline", {"kind": "alert", "entity": "otel-demo/Deployment/frontend"})
+    assert "HighRequestErrorRate fires on otel-demo/Deployment/frontend" in only and " change " not in only
+    assert tb.call("incident_timeline", {"entity": "otel-demo/Deployment/nope"})[0] == "No timeline entries match."
 
 
 def test_tool_outputs_redact_and_diff(scenario):

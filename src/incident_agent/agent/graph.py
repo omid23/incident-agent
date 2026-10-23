@@ -26,6 +26,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
 from ..analysis.rca import Candidate, RCAEngine
+from ..analysis.timeline import build_timeline
 from ..entities import Ref
 from ..snapshot import Snapshot, load_snapshot
 from .llm import LLM, LLMError, ToolCall, ToolSpec
@@ -143,9 +144,12 @@ def build_graph(llm: LLM | None = None, *, executor=None, checkpointer=None, max
         if mode == "llm":
             lines = [f"- {h['entity']} (score {h['score']}): {h['reason']}; explains {', '.join(h['explains'][:3])}"
                      for h in hyps]
+            changes = [f"- {s.entity}: {s.summary} ({'; '.join(s.reasons)})" for s in tb.timeline.suspects[:3]]
             task = (f"Incident {state['incident_id']}. Firing alerts:\n{tb.list_alerts({})}\n\n"
                     "Automated analysis (deterministic checks over the snapshot) suggests:\n"
                     + ("\n".join(lines) or "- nothing conclusive")
+                    + ("\n\nChanges shortly before the first alert (correlation only; see incident_timeline):\n"
+                       + "\n".join(changes) if changes else "")
                     + "\n\nInvestigate, confirm or correct this, and submit the root causes.")
             update["messages"] = [{"role": "user", "content": task}]
         else:
@@ -255,7 +259,11 @@ def build_graph(llm: LLM | None = None, *, executor=None, checkpointer=None, max
                 "timeline": [_event("remediate", executor=getattr(executor, "name", "?"), actions=len(results))]}
 
     def report(state: IncidentState) -> dict:
-        return {"report": render_report(state), "status": state.get("status") if state.get("status") not in
+        _, engine, _ = context(state)
+        roots = [c.entity for c in (_candidate(engine, rc) for rc in (state.get("diagnosis") or {}).get("root_causes", []))
+                 if c]
+        tl = build_timeline(engine, roots)
+        return {"report": render_report(state, tl.render(limit=25)), "status": state.get("status") if state.get("status") not in
                 ("investigating", None) else "diagnosed", "timeline": [_event("report")]}
 
     # -- edges -------------------------------------------------------------------------------------
@@ -409,7 +417,7 @@ def _decisions(answer: Any, actions: list[dict]) -> dict:
     return {i: "reject" for i in ids}
 
 
-def render_report(state: IncidentState) -> str:
+def render_report(state: IncidentState, timeline: list[str] | None = None) -> str:
     d = state.get("diagnosis") or {}
     lines = [f"# Incident {state.get('incident_id')}", "", d.get("summary") or "", ""]
     lines += ["## Root causes", ""]
@@ -422,6 +430,8 @@ def render_report(state: IncidentState) -> str:
     lines += ["", "## Alerts", ""]
     for a in state.get("alerts", []):
         lines.append(f"- {a['alertname']} on {a['entity']}" + (f" (explained by {a['explained_by']})" if a.get("explained_by") else ""))
+    if timeline:
+        lines += ["", "## Timeline", "", "```", *timeline, "```"]
     if state.get("actions"):
         lines += ["", "## Remediation", ""]
         results = {r["action_id"]: r for r in state.get("results", [])}

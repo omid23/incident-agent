@@ -19,6 +19,7 @@ from starlette.routing import Route
 from .. import __version__
 from ..agent.graph import _context, build_graph, register_snapshot, resume_incident, run_incident
 from ..analysis.detectors import pre_existing
+from ..analysis.timeline import build_timeline
 from ..entities import Ref
 from ..mcp_server import IncidentMCP
 from ..snapshot import Snapshot
@@ -177,6 +178,23 @@ def create_app(store: IncidentStore, llm=None, executor=None, state_db: str | Pa
                 pass
         return JSONResponse({"nodes": list(nodes.values()), "edges": edges})
 
+    async def timeline(request: Request) -> Response:
+        ctx = await asyncio.to_thread(_get, request.path_params["iid"])
+        if ctx is None:
+            return JSONResponse({"error": "No such incident."}, 404)
+        _, engine, _ = ctx
+        diag = state_of(request.path_params["iid"]).get("diagnosis")
+        roots = None
+        if diag:  # tag the diagnosis the workflow settled on, which may be the model's
+            roots = []
+            for rc in diag.get("root_causes", []):
+                try:
+                    roots.append(Ref.parse(rc["entity"]))
+                except ValueError:
+                    pass
+        tl = await asyncio.to_thread(build_timeline, engine, roots)
+        return JSONResponse(tl.to_dict())
+
     async def resource(request: Request) -> Response:
         ctx = await asyncio.to_thread(_get, request.path_params["iid"])
         if ctx is None:
@@ -196,6 +214,7 @@ def create_app(store: IncidentStore, llm=None, executor=None, state_db: str | Pa
         Route("/api/incidents/{iid}", incident), Route("/api/incidents/{iid}/investigate", investigate, methods=["POST"]),
         Route("/api/incidents/{iid}/approve", approve, methods=["POST"]),
         Route("/api/incidents/{iid}/topology", topology), Route("/api/incidents/{iid}/resource", resource),
+        Route("/api/incidents/{iid}/timeline", timeline),
         Route("/mcp", mcp.handle, methods=["POST"]), Route("/healthz", healthz),
     ])
 

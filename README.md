@@ -43,11 +43,18 @@ LangGraph workflow
 
 **The agent** (`agent/graph.py`)
 - A LangGraph `StateGraph` with a SQLite checkpointer, so every step is durable. An investigation interrupted mid-way, or paused for approval, resumes from the same point in a new process.
-- With a model configured, a ReAct loop runs over ten read-only tools. The rules engine's candidates are its starting hypotheses, and the model has to confirm or correct them.
+- With a model configured, a ReAct loop runs over eleven read-only tools. The rules engine's candidates are its starting hypotheses, and the model has to confirm or correct them.
+  - It also gets the changes that landed shortly before the first alert, from the incident timeline (below).
   - Model adapters for the Anthropic Messages API and OpenAI-compatible chat are plain `httpx`.
   - If the model fails or runs out of steps, the workflow falls back to the rules engine.
 - `adjudicate` is deterministic. It checks that every proposed root cause exists and that every new alert is explained by one of them. It also checks that no proposed entity is just a symptom of another, and that no stronger defect on an alert's path was left out. Failures go back to the model as specific feedback.
 - `approval` uses LangGraph `interrupt()`. Each action shows its exact kubectl command, risk level and whether it can be undone.
+
+**Incident timeline** (`analysis/timeline.py`)
+- One ordered view, relative to the first alert of the incident (T0): changes (rollout diffs, edits to config, policy and Services), the first Warning event per object and reason, the first occurrence of each new error log pattern, the first failed call on each service edge, and alert activations.
+- A deleted Service leaves no object behind, so its deletion is inferred from client spans: last answered call, then name-resolution failures.
+- Changes are ranked as likely triggers by how shortly they landed before T0 and whether an alert's dependency path reaches them. A change no alert can reach is shown, but not ranked. This is correlation and the RCA engine does not use it; on the 30 synthetic scenarios (3 seeds) the top-ranked change is a ground-truth root cause in 72 of 89 runs that have one.
+- Available as the `incident_timeline` tool (agent and MCP), `incident-agent timeline`, a section of the incident report, and the console's "What changed" panel.
 
 **Remediation** (`agent/remediation.py`)
 - Actions are concrete, for example:
@@ -148,13 +155,14 @@ Requires Python 3.10+.
 
 ```bash
 pip install -e ".[dev]"
-pytest -q                                       # 137 tests, offline, about 10 s
+pytest -q                                       # 142 tests, offline, about 15 s
 
 incident-agent serve --demo                     # console with all 30 scenarios: http://127.0.0.1:8750
 incident-agent scenarios                        # list them with their ground truth
 
 incident-agent simulate 31 --out snapshots      # write one incident snapshot
 incident-agent diagnose snapshots/scenario-31   # root causes, evidence, propagation
+incident-agent timeline snapshots/scenario-31   # what changed, then what failed, relative to the first alert
 incident-agent investigate snapshots/scenario-31 --approve none    # full workflow, reject all actions
 incident-agent eval --split test                # baselines vs the engine, writes reports/
 ```
@@ -204,12 +212,12 @@ Point a client at `http://127.0.0.1:8750/mcp`. Tools take an `incident` id from 
 ```
 src/incident_agent/
   simulate/   topology.py (OTel demo, Bookinfo) · engine.py (cluster, traffic, telemetry, alerts) · faults.py · scenarios.py
-  analysis/   index.py (relationships) · detectors.py (evidence) · rca.py (root cause vs symptom)
+  analysis/   index.py (relationships) · detectors.py (evidence) · rca.py (root cause vs symptom) · timeline.py (changes vs failures)
   agent/      graph.py (LangGraph workflow) · tools.py · remediation.py · llm.py
   eval/       groundtruth.py · scoring.py (ITBench-AA rule) · runner.py (baselines, reports)
   itbench.py (ITBench snapshot reader/writer) · collect.py (live cluster) · mcp_server.py · web/ · cli.py
   data/itbench/  IBM ITBench scenario specs, ground truth and fault definitions (Apache-2.0)
-tests/        137 tests: every scenario, detectors, RCA, scoring, the workflow with approval and restart,
+tests/        142 tests: every scenario, detectors, RCA, scoring, the workflow with approval and restart,
               scripted-model runs, MCP approval round trip, console API, collector, CLI
 reports/      rca-dev.md · rca-test.md
 ```

@@ -1,4 +1,4 @@
-"""Command line: simulate, diagnose, investigate, serve, eval, collect."""
+"""Command line: simulate, diagnose, timeline, investigate, serve, eval, collect."""
 
 from __future__ import annotations
 
@@ -75,6 +75,22 @@ def cmd_diagnose(args) -> None:
         print(f"\nnot explained: {[d.alerts[i]['alertname'] for i in d.unexplained_alerts]}")
     if d.chains:
         print("\npropagation: " + " -> ".join(max(d.chains, key=len)))
+
+
+def cmd_timeline(args) -> None:
+    from .analysis.rca import RCAEngine
+    from .analysis.timeline import build_timeline
+    from .entities import Ref
+    from .snapshot import load_snapshot
+
+    tl = build_timeline(RCAEngine(load_snapshot(args.snapshot)))
+    if args.json:
+        print(json.dumps(tl.to_dict(), indent=1))
+        return
+    ent = Ref.parse(args.entity) if args.entity else None
+    kinds = set(args.kind.split(",")) if args.kind else None
+    entries = tl.filter(ent, kinds) if ent or kinds else None
+    print("\n".join(tl.render(entries, limit=args.limit, suspects=0 if entries is not None else 3)))
 
 
 def cmd_investigate(args) -> None:
@@ -236,6 +252,14 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--json", action="store_true")
     s.add_argument("--itbench-out", help="write agent_output.json for the ITBench judge")
     s.set_defaults(func=cmd_diagnose)
+
+    s = sub.add_parser("timeline", help="what changed, then what failed, relative to the first alert")
+    s.add_argument("snapshot")
+    s.add_argument("--entity", help="only entries about this entity (namespace/Kind/name)")
+    s.add_argument("--kind", help="comma-separated: change, warning, error, alert, marker")
+    s.add_argument("--limit", type=int, default=60)
+    s.add_argument("--json", action="store_true")
+    s.set_defaults(func=cmd_timeline)
 
     s = sub.add_parser("investigate", help="run the full agent workflow (diagnose, plan, approve, remediate)")
     s.add_argument("snapshot")
