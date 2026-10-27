@@ -225,7 +225,8 @@ def main(argv: list[str] | None = None) -> None:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def llm_args(sp):
-        sp.add_argument("--provider", choices=["anthropic", "openai"])
+        sp.add_argument("--provider", choices=["anthropic", "openai", "google"],
+                        help="google: Vertex AI (Gemini, or Claude with a claude-* model)")
         sp.add_argument("--model")
         sp.add_argument("--max-steps", type=int, default=16)
 

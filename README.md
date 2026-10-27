@@ -45,7 +45,7 @@ LangGraph workflow
 - A LangGraph `StateGraph` with a SQLite checkpointer, so every step is durable. An investigation interrupted mid-way, or paused for approval, resumes from the same point in a new process.
 - With a model configured, a ReAct loop runs over eleven read-only tools. The rules engine's candidates are its starting hypotheses, and the model has to confirm or correct them.
   - It also gets the changes that landed shortly before the first alert, from the incident timeline (below).
-  - Model adapters for the Anthropic Messages API and OpenAI-compatible chat are plain `httpx`.
+  - Model adapters for the Anthropic Messages API, OpenAI-compatible chat and Google Cloud Vertex AI (Gemini, or Claude through Vertex) are plain `httpx`.
   - If the model fails or runs out of steps, the workflow falls back to the rules engine.
 - `adjudicate` is deterministic. It checks that every proposed root cause exists and that every new alert is explained by one of them. It also checks that no proposed entity is just a symptom of another, and that no stronger defect on an alert's path was left out. Failures go back to the model as specific feedback.
 - `approval` uses LangGraph `interrupt()`. Each action shows its exact kubectl command, risk level and whether it can be undone.
@@ -173,6 +173,11 @@ incident-agent eval --split test                # baselines vs the engine, write
 export ANTHROPIC_API_KEY=...                    # or OPENAI_API_KEY with --provider openai
 incident-agent investigate snapshots/scenario-31 --provider anthropic --model claude-sonnet-5-5
 incident-agent serve --demo --provider anthropic
+
+# Google Cloud Vertex AI: credentials from `gcloud auth application-default login`
+export GOOGLE_CLOUD_PROJECT=my-project          # GOOGLE_CLOUD_LOCATION defaults to global
+incident-agent investigate snapshots/scenario-31 --provider google                     # Claude on Vertex
+incident-agent investigate snapshots/scenario-31 --provider google --model <gemini model id>
 ```
 
 **On a live cluster.** Snapshot it first. Secret values are never copied.

@@ -15,7 +15,17 @@ from incident_agent.agent.graph import (
     resume_incident,
     run_incident,
 )
-from incident_agent.agent.llm import AnthropicLLM, LLMResponse, OpenAICompatLLM, ScriptedLLM, ToolCall, ToolSpec
+from incident_agent.agent.llm import (
+    AnthropicLLM,
+    LLMError,
+    LLMResponse,
+    OpenAICompatLLM,
+    ScriptedLLM,
+    ToolCall,
+    ToolSpec,
+    VertexLLM,
+    make_llm,
+)
 from incident_agent.agent.remediation import Action, DryRunExecutor, KubectlExecutor, plan
 from incident_agent.agent.tools import Toolbox
 from incident_agent.analysis.rca import RCAEngine
@@ -253,3 +263,60 @@ def test_model_adapters_wire_format(monkeypatch):
     assert r.tool_calls[0].name == "list_alerts" and seen["a"]["messages"][2]["content"][0]["type"] == "tool_result"
     r = OpenAICompatLLM(client=httpx.Client(transport=httpx.MockTransport(openai))).complete("sys", msgs, tools)
     assert r.text == "done" and seen["o"]["messages"][0] == {"role": "system", "content": "sys"}
+
+
+def test_vertex_adapter_gemini_and_claude(monkeypatch):
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj")
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    seen: list = []
+
+    def vertex(req: httpx.Request) -> httpx.Response:
+        seen.append((str(req.url), req.headers["authorization"], json.loads(req.content)))
+        if ":rawPredict" in str(req.url):
+            return httpx.Response(200, json={"content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn",
+                                             "usage": {"input_tokens": 3, "output_tokens": 1}})
+        return httpx.Response(200, json={
+            "candidates": [{"finishReason": "STOP", "content": {"role": "model", "parts": [
+                {"text": "thinking", "thought": True}, {"text": "checking"},
+                {"functionCall": {"name": "get_events", "args": {"type": "Warning"}}, "thoughtSignature": "c2ln"}]}}],
+            "usageMetadata": {"promptTokenCount": 7, "candidatesTokenCount": 2, "thoughtsTokenCount": 4}})
+
+    tokens = iter(["tok-1", "tok-2"])
+    client = httpx.Client(transport=httpx.MockTransport(vertex))
+    gem = VertexLLM("gemini-x", client=client, token=lambda: next(tokens))
+    tools = [ToolSpec("list_alerts", "d", {"type": "object", "properties": {}}),
+             ToolSpec("get_events", "e", {"type": "object", "properties": {"type": {"type": "string"}}})]
+    r = gem.complete("sys", [{"role": "user", "content": "q"}], tools)
+    url, auth, body = seen[-1]
+    assert url == ("https://aiplatform.googleapis.com/v1/projects/proj/locations/global/publishers/google/models/"
+                   "gemini-x:generateContent") and auth == "Bearer tok-1"
+    assert body["systemInstruction"] == {"parts": [{"text": "sys"}]}
+    decls = body["tools"][0]["functionDeclarations"]
+    assert "parameters" not in decls[0] and decls[1]["parameters"]["properties"]["type"] == {"type": "string"}
+    assert r.text == "checking" and r.tool_calls[0].name == "get_events" and r.output_tokens == 6
+    # The thought signature comes back on the next turn, with the tool result in a user turn.
+    msgs = [{"role": "user", "content": "q"}, {"role": "assistant", "content": r.text, "tool_calls": r.tool_calls},
+            {"role": "tool", "tool_call_id": r.tool_calls[0].id, "name": "get_events", "content": "none",
+             "is_error": False}]
+    gem.complete("sys", msgs, tools)
+    _, auth, body = seen[-1]
+    assert auth == "Bearer tok-1"  # token cached
+    model_turn = body["contents"][1]
+    assert model_turn["role"] == "model" and model_turn["parts"][1]["thoughtSignature"] == "c2ln"
+    assert model_turn["parts"][1]["functionCall"] == {"name": "get_events", "args": {"type": "Warning"}}
+    assert body["contents"][2] == {"role": "user", "parts": [{"functionResponse": {
+        "name": "get_events", "response": {"content": "none"}}}]}
+
+    claude = VertexLLM("claude-sonnet-5-5", location="us-east5", client=client, token=lambda: "t")
+    r = claude.complete("sys", msgs[:1], tools)
+    url, _, body = seen[-1]
+    assert url.startswith("https://us-east5-aiplatform.googleapis.com/") and url.endswith(
+        "/publishers/anthropic/models/claude-sonnet-5-5:rawPredict")
+    assert body["anthropic_version"] == "vertex-2023-10-16" and "model" not in body and r.text == "ok"
+
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT")
+    with pytest.raises(ValueError, match="GOOGLE_CLOUD_PROJECT"):
+        make_llm("google")
+    failing = VertexLLM("gemini-x", project="p", client=client, token=lambda: (_ for _ in ()).throw(LLMError("no creds")))
+    with pytest.raises(LLMError, match="no creds"):
+        failing.complete("sys", msgs[:1], tools)
